@@ -4,7 +4,7 @@
 #include "user.h"
 #include "fcntl.h"
 
-// Parsed command representation
+// Parsed command representation haha
 #define EXEC  1
 #define REDIR 2
 #define PIPE  3
