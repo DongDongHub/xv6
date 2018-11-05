@@ -79,6 +79,7 @@ kfree(char *v)
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.
 // Returns 0 if the memory cannot be allocated.
+// 分配一个 4096 字节的页 在物理内存中。 返回一个指针地址 内核可以使用
 char*
 kalloc(void)
 {

@@ -32,13 +32,14 @@ seginit(void)
 // Return the address of the PTE in page table pgdir
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
+// 返回 va 对应的 PTE 在 pgdir 内的地址
 static pte_t *
 walkpgdir(pde_t *pgdir, const void *va, int alloc)
 {
-  pde_t *pde;
-  pte_t *pgtab;
+  pde_t *pde;   // page dir   目录 保存的是 物理地址。
+  pte_t *pgtab; // page table 表
 
-  pde = &pgdir[PDX(va)];
+  pde = &pgdir[PDX(va)];  //10 bits index 
   if(*pde & PTE_P){
     pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
   } else {
@@ -57,6 +58,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
+// 创建 pte entry 页表项 为虚拟地址
 static int
 mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {

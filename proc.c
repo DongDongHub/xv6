@@ -98,7 +98,7 @@ found:
   }
   sp = p->kstack + KSTACKSIZE;
 
-  // Leave room for trap frame.
+  // Leave room for trap frame. 在内核的栈上保留一个 trapframe
   sp -= sizeof *p->tf;
   p->tf = (struct trapframe*)sp;
 
@@ -123,14 +123,14 @@ userinit(void)
   struct proc *p;
   extern char _binary_initcode_start[], _binary_initcode_size[];
 
-  p = allocproc();
+  p = allocproc();  // 1. 获取进程表项， 2. 初始化 内核栈。
   
   initproc = p;
-  if((p->pgdir = setupkvm()) == 0)
+  if((p->pgdir = setupkvm()) == 0)  //初始化 进程的 pgdir 把内核 pgdir 添加到进程的 内核地址空间。
     panic("userinit: out of memory?");
   inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
   p->sz = PGSIZE;
-  memset(p->tf, 0, sizeof(*p->tf));
+  memset(p->tf, 0, sizeof(*p->tf));  //此处的 初始化 tf 的代码 和 processes 通过系统调用进入 内核有点类似 保存 proccesses 内部的寄存器。
   p->tf->cs = (SEG_UCODE << 3) | DPL_USER;
   p->tf->ds = (SEG_UDATA << 3) | DPL_USER;
   p->tf->es = p->tf->ds;

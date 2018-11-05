@@ -8,7 +8,7 @@
 char *argv[] = { "sh", 0 };
 
 int
-main(void)
+main(void)  //初始化 console 终端， 然后循环监听 wait child process 的结束。
 {
   int pid, wpid;
 
@@ -19,7 +19,7 @@ main(void)
   dup(0);  // stdout
   dup(0);  // stderr
 
-  for(;;){
+  for(;;){  
     printf(1, "init: starting sh\n");
     pid = fork();
     if(pid < 0){

@@ -1,0 +1,257 @@
+To make the xv6 organization more concrete, 
+
+
+
+
+
+we’ll look
+ 
+1. how the kernel creates the first address space (for itself)
+2. how the kernel creates and starts the first process
+3. how that process performs the first system call. 
+
+
+
+By tracing these operations we see in detail how xv6 provides strong isolation for processes. 
+
+The first step in providing strong isolation is setting up the kernel to run in its own address space.
+
+When a PC powers on, it initializes itself and then loads a boot loader from disk into memory and executes it. (bootloader 加载内核文件 到内存 并执行 内核文件)
+
+Appendix B explains the details. 
+
+Xv6’s boot loader loads the xv6 kernel from disk and executes it starting at entry (1144). 
+
+
+
+The x86 paging hardware is not enabled when the kernel starts; 
+virtual addresses map directly to physical addresses.
+
+The boot loader loads the xv6 kernel into memory at physical address 0x100000.(内核的数据代码存储在 text and data store in 物理地址 0x100000 的起始位置)
+
+
+The reason it doesn’t load the kernel at 0x80100000, where the kernel expects to find its instructions and data, is that there may not be any physical memory at such a high address on a small machine. 
+
+The reason it places the kernel at 0x100000 rather than 0x0 is because the address range 0xa0000:0x100000 contains I/O devices.( 以 0x100000 作为内核代码的起始位置， 因为 0xa0000 ~ 0x100000 内含有有 I/O 的设备)
+
+To allow the rest of the kernel to run, entry(入口点) sets up a page table that maps virtual addresses starting at 0x80000000 (called KERNBASE (0207)) to physical addresses starting at 0x0 (see Figure 1-2). 
+(entry 设置了一个页表 映射 虚拟地址 从 0x80000000 到 物理地址 0x0) v2p p2v 针对地址进行 +/- KERNBASE 进行操作。
+
+(设立 两端的虚拟地址空间 映射到同一段物理地址空间 是页表一个较为常用的的特性。)
+Setting up two ranges of virtual addresses that map to the same physical memory range is a common use of page tables, and we will see more examples like this one.
+
+
+
+The entry page table is defined in main.c (1412). We look at the details of page tables in Chapter 2, but the short story is that entry 0 maps virtual addresses 0:0x400000 to physical addresses 0:0x400000. 
+
+(这个映射 会一直保留 当 entry 运行在低地址时， 但最终会被移除)
+This mapping is required as long as entry is executing at low addresses, but will eventually be removed.
+
+Entry 512 maps virtual addresses KERNBASE:KERNBASE+0x400000 to physical addresses 0:0x400000.  This entry will be used by the kernel after entry has finished; 
+it maps the high virtual addresses at which the kernel expects to find its instructions and data to the low physical addresses where the boot loader loaded them.
+entry 512 映射了 高虚拟地址空间 kernel 希望找到 kernel 相关代码和数据在高的地址虚拟地址空间  
+
+This mapping restricts the kernel instructions and data to 4 Mbytes(这个 mapping 限制了 内核的数据和指令最大 4Mb). 
+
+Returning to entry, it loads the physical address of entrypgdir into control register %cr3. (cr3 存储了 entrypgdir 的物理地址) 
+The value in %cr3 must be a physical address. 
+It wouldn’t make sense for %cr3 to hold the virtual address of entrypgdir, because the paging hardware doesn’t know how to translate virtual addresses yet; it doesn’t have a page table yet. 
+(此时 cr3 需要存储 entrypgdir 的实际的物理地址， 因为此时 页表的硬件还未初始化，无法进行 va 和 pa 的转化)
+
+The symbol entrypgdir refers to an address in high memory, and the macro V2P_WO (0213) subtracts KERNBASE in order to find the physical address. 
+entrypgdir 是一个指向 高地址的 虚拟地址  需要减去 KERNBASE 取得 实际的物理地址
+
+To enable the paging hardware, xv6 sets the flag CR0_PG in the control register %cr0.(启用 页表的硬件)
+
+
+The processor is still executing instructions at low addresses after paging is enabled(页表 启动后， cpu 还是在低地址处执行指令), which works since entrypgdir maps low addresses. 
+
+If xv6 had omitted entry 0 from entrypgdir, the computer would have crashed when trying to execute the instruction after the one that enabled paging.
+
+Now entry needs to transfer to the kernel’s C code, and run it in high memory.(限制 入口代码 需要转移控制权 到 内核的 C 代码。 运行在 高地址空间)
+
+
+
+First it makes the stack pointer, %esp, point to memory to be used as a stack (1158).  设置栈 的地址(address space) text => data => stack => heap (user space)| kernel(space)
+
+All symbols have high addresses, including stack, so the stack will still be valid even when the low mappings are removed. 
+
+Finally entry jumps to main, which is also a high address.  
+The indirect jump is needed because the assembler would otherwise generate a PC-relative direct jump, which would execute the low-memory version of main. 
+
+Main cannot return, since the there’s no return PC on the stack. Now the kernel is running in high addresses in the function main (1317).
+main 没有返回， 因为 stack 内没有 相关的返回地址信息。 现在 内核运行在 高地址空间的 main 中了。
+1. kernel 创建自己的内存地址空间。
+1.1 内核的进程 没有用户地址空间。
+1.2 内核 启动前 页表功能尚未启动 需要进行初始化。虚拟地址 直接映射到 物理地址。
+
+
+2. Code: creating the first process (创建第一个进程)
+After main (1317) initializes several devices and subsystems, it creates the first process by calling userinit (2502). Userinit’s first action is to call allocproc. The job of allocproc (2456) is to allocate a slot (a struct proc) in the process table and to initialize the parts of the process’s state required for its kernel thread to execute. 
+
+Allocproc is called for each new process, while userinit is called only for the very first process. Allocproc scans the proc table for a slot with state UNUSED (2461-2463). 
+When it finds an unused slot, allocproc sets the state to EMBRYO to mark it as used and gives the process a unique pid (2451-2468). Next, it tries to allocate a kernel stack for the process’s kernel thread. 
+If the memory allocation fails, allocproc changes the state back to UNUSED and returns zero to signal failure.
+
+Now allocproc must set up the new process’s kernel stack. allocproc is written so that it can be used by fork as well as when creating the first process. 
+
+alloc proc sets up the new process with a specially prepared kernel stack and set of kernel registers that cause it to ‘‘return’’ to user space when it first runs.
+(allocproc 设置新的进程 以一个 特制的 内核栈 和 一套 内核的寄存器。 导致它返回到 用户的空间。当它第一次运行的时候。)
+
+The layout of the prepared kernel stack will be as shown in Figure 1-4. 
+
+
+allocproc does part of this work by setting up return program counter values that will cause the new process’s kernel thread to first execute in forkret and then in trapret (2484-2489). 
+
+The kernel thread will start executing with register contents copied from p->context. (内核线程 先用 p->context 储存的寄存器的值 代替 cpu 内寄存器的值)
+
+Thus setting p->context->eip to forkret will cause the kernel thread to execute at the start of forkret (2788). This function will return to whatever address is at the bottom of the stack. 
+
+The context switch code (2958) sets the stack pointer to point just beyond the end of p->context. 
+
+allocproc places p->context on the stack, and puts a pointer to trapret just above it; that is where forkret will return. trapret restores user registers from values stored at the top of the kernel stack and jumps into the process (3277).
+
+
+This setup is the same for ordinary fork and for creating the first process, though in the latter case the process will start executing at user-space location zero rather than at a return from fork.
+
+
+As we will see in Chapter 3, the way that control transfers from user software to the kernel is via an interrupt mechanism, which is used by system calls, interrupts, and exceptions. 
+(控制权的转移， 通过 系统调用， 中断， 异常 三种方式进行)
+
+Whenever control transfers into the kernel while a process is running, the hardware and xv6 trap entry code save user registers on the process’s kernel stack.
+无论何时，当一个正在运行的进程 转移控制权到内核时，( 硬件 和 xv6 陷阱入口代码 会保存用户的 寄存器到 进程相应的内核栈上。)
+
+
+userinit writes values at the top of the new stack that look just like those that would be there if the process had entered the kernel via an interrupt (2516-2522), so that the ordinary
+code for returning from the kernel back to the process’s user code will work.
+
+
+These values are a struct trapframe which stores the user registers. Now the new process’s kernel stack is completely prepared as shown in Figure 1-4.
+
+The first process is going to execute a small program (initcode.S; (8400)). The process needs physical memory in which to store this program, 
+
+
+the program needs to be copied to that memory, and the process needs a page table that maps user-space addresses to that memory.
+
+userinit calls setupkvm (1837) to create a page table for the process with (at first) mappings only for memory that the kernel uses. (仅仅加载了内核空间的 地址映射)
+
+
+We will study this function in detail in Chapter 2, but at a high level setupkvm and userinit create an address space as shown in Figure 1-2.
+
+The initial contents of the first process’s user-space memory are the compiled form of initcode.S; as part of the kernel build process, 
+the linker embeds that binary in the kernel and defines two special symbols, _binary_initcode_start and _binary_initcode_size, indicating the location and size of the binary. 
+
+
+Userinit copies that binary into the new process’s memory by calling inituvm, 
+
+which allocates one page of physical memory, maps virtual address zero to that memory, and copies the binary to that page (1903).(init 程序代码在 kernel 的代码内)
+Then userinit sets up the trap frame (0602) with the initial user mode state: 
+
+
+the %cs register contains a segment selector for the SEG_UCODE segment running at privilege level DPL_USER (i.e., user mode rather than kernel mode),  and similarly %ds, %es,
+and %ss use SEG_UDATA with privilege DPL_USER. 
+
+
+The %eflags FL_IF bit is set to allow hardware interrupts; 
+
+we will reexamine this in Chapter 3. 
+
+The stack pointer %esp is set to the process’s largest valid virtual address, p->sz. (栈指针 指向 进程最大的有效 虚拟地址地址)
+
+
+The instruction pointer is set to the entry point for the initcode, address 0. The function userinit sets p->name to initcode mainly for debugging. 
+Setting p->cwd sets the process’s current working directory; we will examine namei in detail in Chapter 6.
+
+Once the process is initialized, userinit marks it available for scheduling by setting p->state to RUNNABLE.(一旦 进程初始化完了 标识其为可运行 RUNNABLE)
+pgdir 保存 vr
+pgdir entry 保存 page table 的物理地址。
+ 
+ 
+3. Code: Running the first process
+Now that the first process’s state is prepared, it is time to run it. After main calls userinit, mpmain calls scheduler to start running processes (1367). 
+
+Scheduler (2708) looks for a process with p->state set to RUNNABLE, and there’s only one: initproc. 
+
+It sets the per-cpu variable proc to the process it found and calls switchuvm to tell the hardware to start using the target process’s page table (1886). 
+Changing page tables while executing in the kernel works because setupkvm causes all processes’ page tables to have identical mappings for kernel code and data. 
+
+switchuvm also sets up a task state segment SEG_TSS that instructs the hardware to execute system calls and interrupts on the process’s kernel stack. 
+
+We will re-examine the task state segment in Chapter 3.
+
+scheduler now sets p->state to RUNNING and calls swtch (2958) to perform a context switch to the target process’s kernel thread. 
+
+
+swtch first saves the current registers. The current context is not a process but rather a special per-cpu scheduler context,
+
+
+so scheduler tells swtch to save the current hardware registers in per-cpu storage (cpu->scheduler) rather than in any process’s kernel thread context. 
+
+swtch then loads the saved registers of the target kernel thread (p->context) into the x86 hardware registers, 
+
+including the stack pointer and instruction pointer. 
+
+We’ll examine swtch in more detail in Chapter 5. The final ret instruction (2977) pops the target process’s %eip from the stack, finishing the context switch. 
+
+Now the processor is running on the kernel stack of process p. Allocproc had previously set initproc’s p->context->eip to forkret, 
+so the ret starts executing forkret. 
+
+On the first invocation (that is this one), forkret (2788) runs initialization functions that cannot be run from main because 
+they must be run in the context of a regular process with its own kernel stack. 
+
+Then, forkret returns. Allocproc arranged that the top word on the stack after p->context is popped off
+would be trapret, 
+
+so now trapret begins executing, with %esp set to p->tf. Trapret (3277) uses pop instructions to restore registers from the trap frame (0602) just as swtch did with the kernel context: 
+
+popal restores the general registers, then the popl instructions restore %gs, %fs, %es, and %ds. The addl skips over the two fields trapno and errcode. 
+
+Finally, the iret instruction pops %cs, %eip, %flags, %esp, and %ss from the stack. 
+
+The contents of the trap frame have been transferred to the CPU state, so the processor continues at the %eip specified in the trap frame. 
+
+
+For initproc,
+that means virtual address zero, the first instruction of initcode.S. At this point, %eip holds zero and %esp holds 4096. 
+These are virtual addresses in the process’s address space. 
+
+The processor’s paging hardware translates them into physical addresses. allocuvm has set up the process’s page table so that virtual address zero refers to the physical memory allocated for this process, 
+
+and set a flag (PTE_U) that tells the paging hardware to allow user code to access that memory. 
+
+The fact that userinit (2516) set up the low bits of %cs to run the process’s user code at CPL=3 means that the user code can only use pages with PTE_U set, and cannot modify sensitive hardware registers such as %cr3. 
+So the process is constrained to using only its own memory.
+
+
+4. The first system call: exec
+Now that we have seen how the kernel provides strong isolation for processes, let’s look at how a user-level process re-enters the kernel to ask for services that it cannot perform itself.
+
+The first action of initcode.S is to invoke the exec system call. As we saw in Chapter 0, exec replaces the memory and registers of the current process with a new program, but it leaves the file descriptors, process id, and parent process unchanged.
+
+Initcode.S (8409) begins by pushing three values on the stack—$argv, $init, and $0—and then sets %eax to SYS_exec and executes int T_SYSCALL: it is asking the kernel to run the exec system call. 
+If all goes well, exec never returns: it starts run ning the program named by $init, which is a pointer to the NUL-terminated string /init (8422-8424). 
+
+
+The other argument is the argv array of command-line arguments; the zero at the end of the array marks its end. 
+
+If the exec fails and does return, initcode loops calling the exit system call, which definitely should not return (8416-8420).
+
+This code manually crafts the first system call to look like an ordinary system call, which we will see in Chapter 3. 
+
+As before, this setup avoids special-casing the first process (in this case, its first system call), and instead reuses code that xv6 must provide for standard operation.
+
+Chapter 2 will cover the implementation of exec in detail, but at a high level it replaces initcode with the /init binary, loaded out of the file system. Now initcode
+(8400) is done, and the process will run /init instead. Init (8510) creates a new console device file if needed and then opens it as file descriptors 0, 1, and 2. 
+
+Then it loops, starting a console shell, handles orphaned zombies until the shell exits, and repeats.
+
+The system is up
+
+
+
+
+
+
+
+
+
