@@ -20,8 +20,8 @@ tvinit(void)
   int i;
 
   for(i = 0; i < 256; i++)
-    SETGATE(idt[i], 0, SEG_KCODE<<3, vectors[i], 0);
-  SETGATE(idt[T_SYSCALL], 1, SEG_KCODE<<3, vectors[T_SYSCALL], DPL_USER);
+    SETGATE(idt[i], 0, SEG_KCODE<<3, vectors[i], 0);  	//全部初始化为内核 PL 且为 TI32 中断类型 
+  SETGATE(idt[T_SYSCALL], 1, SEG_KCODE<<3, vectors[T_SYSCALL], DPL_USER); //重置 64 为系统调用，PL 3 用户程序可以调用。 且类型是 TR32 
 
   initlock(&tickslock, "time");
 }
@@ -34,7 +34,7 @@ idtinit(void)
 
 //PAGEBREAK: 41
 void
-trap(struct trapframe *tf)
+trap(struct trapframe *tf)  //此处的 tf 保存在内核的stack 上。
 {
   if(tf->trapno == T_SYSCALL){
     if(myproc()->killed)
@@ -97,6 +97,7 @@ trap(struct trapframe *tf)
   // Force process exit if it has been killed and is in user space.
   // (If it is still executing in the kernel, let it keep running
   // until it gets to the regular system call return.)
+  // 强制 应用 退出。 如果应用 killed and 在用户空间。
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
     exit();
 

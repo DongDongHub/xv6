@@ -100,6 +100,7 @@ idestart(struct buf *b)
 }
 
 // Interrupt handler.
+// ide 的中断处理函数 获取
 void
 ideintr(void)
 {

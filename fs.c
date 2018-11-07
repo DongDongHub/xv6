@@ -285,6 +285,7 @@ idup(struct inode *ip)
 
 // Lock the given inode.
 // Reads the inode from disk if necessary.
+//锁定 指定的 inode
 void
 ilock(struct inode *ip)
 {
@@ -297,7 +298,7 @@ ilock(struct inode *ip)
   acquiresleep(&ip->lock);
 
   if(ip->valid == 0){
-    bp = bread(ip->dev, IBLOCK(ip->inum, sb));
+    bp = bread(ip->dev, IBLOCK(ip->inum, sb)); //从硬盘中读取一页 用于存储 inode 结构体的数据
     dip = (struct dinode*)bp->data + ip->inum%IPB;
     ip->type = dip->type;
     ip->major = dip->major;
@@ -627,18 +628,18 @@ namex(char *path, int nameiparent, char *name)
 {
   struct inode *ip, *next;
 
-  if(*path == '/')
+  if(*path == '/')  //判断是否是以根目录开头。绝对路径寻址
     ip = iget(ROOTDEV, ROOTINO);
   else
-    ip = idup(myproc()->cwd);
+    ip = idup(myproc()->cwd);  //相对路径寻址
 
-  while((path = skipelem(path, name)) != 0){
+  while((path = skipelem(path, name)) != 0){ //path 是一个指向 某个地址的指针, *path = 0 
     ilock(ip);
     if(ip->type != T_DIR){
       iunlockput(ip);
       return 0;
     }
-    if(nameiparent && *path == '\0'){
+    if(nameiparent && *path == '\0'){  //每次 skipelem 提取路径中的元素 有效的元素 文件名称 或者 目录名称
       // Stop one level early.
       iunlock(ip);
       return ip;
@@ -658,7 +659,7 @@ namex(char *path, int nameiparent, char *name)
 }
 
 struct inode*
-namei(char *path)
+namei(char *path) //读取 path 路径下的二进制文件。
 {
   char name[DIRSIZ];
   return namex(path, 0, name);

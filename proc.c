@@ -91,7 +91,7 @@ found:
 
   release(&ptable.lock);
 
-  // Allocate kernel stack.
+  // Allocate kernel stack. 分配程序的内核栈, tf,trapret,context, eip
   if((p->kstack = kalloc()) == 0){
     p->state = UNUSED;
     return 0;
@@ -128,7 +128,7 @@ userinit(void)
   initproc = p;
   if((p->pgdir = setupkvm()) == 0)  //初始化 进程的 pgdir 把内核 pgdir 添加到进程的 内核地址空间。
     panic("userinit: out of memory?");
-  inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
+  inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);  //拷贝 init 代码到应用自身的空间。
   p->sz = PGSIZE;
   memset(p->tf, 0, sizeof(*p->tf));  //此处的 初始化 tf 的代码 和 processes 通过系统调用进入 内核有点类似 保存 proccesses 内部的寄存器。
   p->tf->cs = (SEG_UCODE << 3) | DPL_USER;

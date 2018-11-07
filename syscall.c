@@ -40,7 +40,7 @@ fetchstr(uint addr, char **pp)
   ep = (char*)curproc->sz;
   for(s = *pp; s < ep; s++){
     if(*s == 0)
-      return s - *pp;
+      return s - *pp;  //返回 了该字符串的长度
   }
   return -1;
 }

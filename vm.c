@@ -39,9 +39,9 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
   pde_t *pde;   // page dir   目录 保存的是 物理地址。
   pte_t *pgtab; // page table 表
 
-  pde = &pgdir[PDX(va)];  //10 bits index 
+  pde = &pgdir[PDX(va)];  //10 bits index  只使用 va 中的高 10 bits
   if(*pde & PTE_P){
-    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));  //pde 的高 20 位 存储了 pgtab 的实际的物理地址。
   } else {
     if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
       return 0;
@@ -58,7 +58,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
-// 创建 pte entry 页表项 为虚拟地址
+// 创建 pte entry 页表项 将 虚拟地址 =》映射到 实际的物理地址。
 static int
 mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
@@ -165,7 +165,7 @@ switchuvm(struct proc *p)
   if(p->pgdir == 0)
     panic("switchuvm: no pgdir");
 
-  pushcli();
+  pushcli();  //不允许中断
   mycpu()->gdt[SEG_TSS] = SEG16(STS_T32A, &mycpu()->ts,
                                 sizeof(mycpu()->ts)-1, 0);
   mycpu()->gdt[SEG_TSS].s = 0;
@@ -189,14 +189,14 @@ inituvm(pde_t *pgdir, char *init, uint sz)
   if(sz >= PGSIZE)
     panic("inituvm: more than a page");
   mem = kalloc();
-  memset(mem, 0, PGSIZE);
-  mappages(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U);
-  memmove(mem, init, sz);
+  memset(mem, 0, PGSIZE);  //先分配内存空间
+  mappages(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U); //添加虚拟地址到 物理之间的映射
+  memmove(mem, init, sz); //拷贝 init 的数据
 }
 
 // Load a program segment into pgdir.  addr must be page-aligned
 // and the pages from addr to addr+sz must already be mapped.
-int
+int  // 加载程序中的段 到 指定的 vaddr 内
 loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
 {
   uint i, pa, n;
@@ -221,7 +221,7 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
 // Allocate page tables and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
 int
-allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
+allocuvm(pde_t *pgdir, uint oldsz, uint newsz) //在 pgdir 上 将 oldsz 的大小的空间 重新分配大小至 newsz 的大小。
 {
   char *mem;
   uint a;

@@ -1,0 +1,137 @@
+Chapter 4
+Locking
+Xv6 runs on multiprocessors: computers with multiple CPUs executing independently. These multiple CPUs share physical RAM, and xv6 exploits the sharing to maintain data structures that all CPUs read and write. 
+
+This sharing raises the possibility of simultaneous writes to the same data structure from multiple CPUs, or even reads simultaneous with a write; 
+
+without careful design such parallel access is likely to yield incorrect results or a broken data structure. 
+
+
+Even on a uniprocessor, an interrupt routine that uses the same data as some interruptible code could damage the data if the interrupt occurs at just the wrong time.
+
+Any code that accesses shared data concurrently from multiple CPUs (or at interrupt time) must have a strategy for maintaining correctness despite concurrency. 
+
+xv6 uses a handful of simple concurrency control strategies; much more sophistication is possible. This chapter focuses on one of the strategies used extensively in xv6 and many other systems: 
+the lock.
+A lock provides mutual exclusion, ensuring that only one CPU at a time can hold the lock. 
+
+If a lock is associated with each shared data item, and the code always holds the associated lock when using a given item, then we can be sure that the item is used from only one CPU at a time. 
+
+In this situation, we say that the lock protects the data item.
+
+The rest of this chapter explains: 
+why xv6 needs locks, 
+how xv6 implements them,
+how it uses them. 
+
+
+A key observation will be that if you look at some code in xv6, you must ask yourself if another processor (or interrupt) could change the intended behavior of the code by modifying data (or hardware resources) it depends on. 
+You must keep in mind that a single C statement can be several machine instructions and thus another processor or an interrupt may muck around in the middle of a C statement. (一条 c 语句 对应 几条 机器指令)
+You cannot assume that lines of code on the page are executed atomically.
+Concurrency makes reasoning about correctness much more difficult.
+
+Race conditions
+As an example on why we need locks, consider several processors sharing a single
+disk, such as the IDE disk in xv6. The disk driver maintains a linked list of the outstanding disk requests (4125) and processors may add new requests to the list concurrently (4254). 
+
+If there were no concurrent requests, you might implement the linked list
+as follows:
+1 struct list {
+2 int data;
+3 struct list *next;
+4 };
+5
+6 struct list *list = 0;
+7
+8 void
+9 insert(int data)
+10 {
+11 struct list *l;
+12
+13 l = malloc(sizeof *l);
+14 l->data = data;
+15 l->next = list;
+16 list = l;
+17 }
+
+Proving this implementation correct is a typical exercise in a data structures and algorithms class. However, the code is not correct if more than one copy executes concurrently.
+
+If two CPUs execute insert at the same time, it could happen that both execute line 15 before either executes 16 (see Figure 4-1). If this happens, there will now be two list nodes with next set to the former value of list. 
+
+When the two assignments to list happen at line 16, the second one will overwrite the first; the node involved in the first assignment will be lost. This kind of problem is called a race condition.
+
+The outcome of a race depends on the exact timing of the two CPUs involved and how their memory operations are ordered by the memory system, which can make race-induced errors difficult to reproduce and debug. 
+
+
+For example, adding print statements while debugging insert might change the timing of the execution enough to make the race disappear. (添加 print 可能导致bug 消失)
+The typical way to avoid races is to use a lock. Locks ensure mutual exclusion, so that only one CPU can execute insert at a time; this makes the scenario above impossible. 
+The correctly locked version of the above code adds just a few lines (not numbered):
+6 struct list *list = 0;
+struct lock listlock;
+7
+8 void
+9 insert(int data)
+10 {
+11 struct list *l;
+12
+acquire(&listlock);
+13 l = malloc(sizeof *l);
+14 l->data = data;
+15 l->next = list;
+16 list = l;
+release(&listlock);
+17 }
+
+The sequence of instructions between acquire and release is often called a critical section, and the lock protects list.
+
+When we say that a lock protects data, we really mean that the lock protects some collection of invariants that apply to the data. 
+
+Invariants are properties of data structures that are maintained across operations. 
+
+Typically, an operation’s correct behavior depends on the invariants being true when the operation begins. 
+
+The operation may temporarily violate the invariants but must reestablish them before finishing. 
+
+For example, in the linked list case, the invariant is that list points at the first node in the list and that each node’s next field points at the next node. 
+
+The implementation of insert violates this invariant temporarily: line 13 creates a new list element l with the intent that l be the first node in the list, but l’s next pointer does not point at the next node in the list yet (reestablished at line 15) and list does not point at l yet (reestablished at line 16). 
+
+The race condition we examined above happened because a second CPU executed code that depended on the list invariants while they were (temporarily) violated. 
+Proper use of a lock ensures that only one CPU at a time can operate on the data structure in the critical section, so that no CPU will execute a data structure operation when the data structure’s invariants do not hold.
+
+Code: Locks
+Xv6 represents a lock as a struct spinlock (1501). The important field in the structure is locked, a word that is zero when the lock is available and non-zero when it is
+held. Logically, xv6 should acquire a lock by executing code like
+21 void
+22 acquire(struct spinlock *lk)
+23 {
+24 for(;;) {
+25 if(!lk->locked) {
+26 lk->locked = 1;
+27 break;
+28 }
+29 }
+30 }
+Unfortunately, this implementation does not guarantee mutual exclusion on a multiprocessor.
+It could happen that two CPUs simultaneously reach line 25, see that lk->locked is zero, and then both grab the lock by executing line 26. 
+
+At this point, two different CPUs hold the lock, which violates the mutual exclusion property. 
+Rather than helping us avoid race conditions, this implementation of acquire has its own race condition. 
+
+The problem here is that lines 25 and 26 executed as separate actions.
+In order for the routine above to be correct, lines 25 and 26 must execute in one atomic (i.e., indivisible) step.
+
+To execute those two lines atomically, xv6 relies on a special x86 instruction, xchg (0569). In one atomic operation, xchg swaps a word in memory with the contents of a register. 
+
+The function acquire (1574) repeats this xchg instruction in a loop; each iteration atomically reads lk->locked and sets it to 1 (1581). 
+
+If the lock is already held, lk->locked will already be 1, so the xchg returns 1 and the loop continues. 
+
+If the xchg returns 0, however, acquire has successfully acquired the lock—locked was 0 and is now 1—so the loop can stop. 
+
+
+Once the lock is acquired, acquire records, for debugging, the CPU and stack trace that acquired the lock. If a process forgets to release a lock, this information can help to identify the culprit. 
+
+These debugging fields are protected by the lock and must only be edited while holding the lock.
+
+The function release (1602) is the opposite of acquire: it clears the debugging fields and then releases the lock.

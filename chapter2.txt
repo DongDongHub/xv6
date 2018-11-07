@@ -1,0 +1,189 @@
+Paging hardware
+As a reminder, x86 instructions (both user and kernel) manipulate virtual addresses.(x86 的指令 不管是 用户态还是内核态都是操纵 虚拟地址。) 
+
+The machine’s RAM, or physical memory, is indexed with physical addresses.
+ 
+The x86 page table hardware connects these two kinds of addresses, by mapping each virtual address to a physical address.
+
+
+An x86 page table is logically an array of 2^20 (1,048,576) page table entries (PTEs). 
+
+Each PTE contains a 20-bit physical page number (PPN) and some flags. 
+The paging hardware translates a virtual address by using its top 20 bits to index into the page table to find a PTE, and replacing the address’s top 20 bits with the PPN in the PTE.
+( 页的硬件 地址转化 使用虚拟地址高 20bits 索引 该页对应的 物理地址 保留低 12 bits 的页内的偏移量。 ) 
+
+The paging hardware copies the low 12 bits unchanged from the virtual to the translated physical address. 
+Thus a page table gives the operating system control over virtual-to-physical address translations at the granularity of aligned chunks of 4096 (2^12) bytes. Such a chunk is called a page.
+(页表 提供的转换 是页的大小 4096 个字节)
+
+As shown in Figure 2-1, the actual translation happens in two steps. 
+
+A page table is stored in physical memory as a two-level tree. 
+
+The root of the tree is a 4096-byte page directory that contains 1024 PTE-like references to page table pages. (pgt)
+
+Each page table page is an array of 1024 32-bit PTEs. 
+
+The paging hardware uses the top 10 bits of a virtual address to select a page directory entry. 
+
+If the page directory entry is present, the paging hardware uses the next 10 bits of the virtual address to select a PTE from the page table page that the page directory entry refers to. 
+
+If either the page directory entry or the PTE is not present, the paging hardware raises a fault.
+
+This two-level structure allows a page table to omit entire page table pages in the common case in which large ranges of virtual addresses have no mappings.
+Each PTE contains flag bits that tell the paging hardware how the associated virtual address is allowed to be used. 
+
+PTE_P indicates whether the PTE is present: if it is not set, a reference to the page causes a fault (i.e. is not allowed). (PTE_P 标识是否已使用 该entry)
+PTE_W controls whether instructions are allowed to issue writes to the page; (标识是否可写) if not set, only reads and instruction fetches are allowed. 
+PTE_U controls whether user programs are allowed to use the page; if clear, only the kernel is allowed to use the page. (该页是由用户程序所有还是内核所有)
+
+Figure 2-1 shows how it all works. The flags and all other page hardware related structures are defined in mmu.h (0700).
+
+A few notes about terms. Physical memory refers to storage cells in DRAM. A byte of physical memory has an address, called a physical address. Instructions use only virtual addresses, which the paging hardware translates to physical addresses, and then sends to the DRAM hardware to read or write storage. 
+At this level of discussion there is no such thing as virtual memory, only virtual addresses.
+
+
+Figure 2-2. Layout of the virtual address space of a process and the layout of the physical address space. 
+Note that if a machine has more than 2 Gbyte of physical memory, xv6 can use only the memory that fits between KERNBASE and 0xFE00000.
+
+Code: Physical memory allocator
+The allocator’s data structure is a free list of physical memory pages that are available for allocation. 
+( 分配器的数据结构是一个 free list of 可用的物理内存页 )
+
+Each free page’s list element is a struct run (3014). 
+Where does the allocator get the memory to hold that data structure? It store each free page’s run structure in the free page itself, since there’s nothing else stored there. 
+
+The free list is protected by a spin lock (3018-3022). 
+
+
+
+The list and the lock are wrapped in a struct to make clear that the lock protects the fields in the struct. 
+
+For now, ignore the lock and the calls to acquire and release; 
+Chapter 4 will examine locking in detail.
+
+The function main calls kinit1 and kinit2 to initialize the allocator (3030). 
+
+The reason for having two calls is that for much of main one cannot use locks or memory above 4 megabytes. The call to kinit1 sets up for lock-less allocation in the first 4 megabytes, and the call to kinit2 enables locking and arranges for more memory to be allocatable. 
+
+main ought to determine how much physical memory is available, but this turns out to be difficult on the x86. (main 函数应该要判断有多少物理内存是可用的， 但是实现困难)
+(此处 我们假设 该机器 至少有 240 Mb 的可用的物理内存， 从 内核程序加载之后的 地址 到 PHYSTOP 为止的范围。)
+Instead it assumes that the machine has 240 megabytes (PHYSTOP) of physical memory, and uses all the memory between the end of the kernel and PHYSTOP as the initial pool of free memory. 
+
+
+kinit1 and kinit2 call
+freerange to add memory to the free list via per-page calls to kfree. 
+A PTE can only refer to a physical address that is aligned on a 4096-byte boundary (is a multiple of 4096), so freerange uses PGROUNDUP to ensure that it frees only aligned physical addresses.
+
+The allocator starts with no memory; these calls to kfree give it some to manage. (分配器 刚开始是没有 空间管理的，需要 调用 kfree 先释放一些来管理。)
+The allocator refers to physical pages by their virtual addresses as mapped in high memory, not by their physical addresses, which is why kinit uses P2V(PHYSTOP) to translate PHYSTOP (a physical address) to a virtual address. 
+(分配器 通过 虚拟地址来引用物理地址。)
+
+The allocator sometimes treats addresses as integers in order to perform arithmetic on them (e.g., traversing all pages in kinit), 
+and sometimes uses addresses as pointers to read and write memory(e.g., manipulating the run structure stored in each page); 
+
+this dual use of addresses is the main reason that the allocator code is full of C type casts. 
+
+The other reason is that freeing and allocation inherently change the type of the memory.
+
+The function kfree (3065) begins by setting every byte in the memory being freed to the value 1. 
+
+This will cause code that uses memory after freeing it (uses ‘‘dangling references’’) to read garbage instead of the old valid contents; 
+
+hopefully that will cause such code to break faster. Then kfree casts v to a pointer to struct run, records the old start of the free list in r->next, and sets the free list equal to r. kalloc removes and returns the first element in the free list.
+初始化 虚拟内存空间的列表。
+
+
+Code: exec
+Exec is the system call that creates the user part of an address space. 
+
+It initializes the user part of an address space from a file stored in the file system. 
+Exec (6310) opens the named binary path using namei (6321), which is explained in Chapter 6. 
+Then, it reads the ELF header. 
+
+Xv6 applications are described in the widely-used ELF format, defined in elf.h. 
+
+An ELF binary consists of an ELF header, struct elfhdr (1005), followed by a sequence of program section headers, struct proghdr (1024). 
+(一个 elf 二进制文件 由以下几部分构成 ELF header => (elfhdr, section header, proghdr。 3 部分) )
+
+Each proghdr describes a section of the application that must be loaded into memory; 
+
+xv6 programs have only one program section header, but other systems might have separate sections for instructions and data.
+The first step is a quick check that the file probably contains an ELF binary. An ELF binary starts with the four-byte ‘‘magic number’’ 0x7F, ’E’, ’L’, ’F’, or ELF_MAGIC (1002). 
+
+If the ELF header has the right magic number, exec assumes that the binary is well-formed.
+Exec allocates a new page table with no user mappings with setupkvm (6334), allocates
+memory for each ELF segment with allocuvm (6348), and loads each segment into
+memory with loaduvm (6352). allocuvm checks that the virtual addresses requested is
+below KERNBASE. loaduvm (1918) uses walkpgdir to find the physical address of the allocated
+memory at which to write each page of the ELF segment, and readi to read
+from the file.
+The program section header for /init, the first user program created with exec,
+looks like this:
+
+# objdump -p _init
+_init: file format elf32-i386
+
+Program Header:
+LOAD off 0x00000054 vaddr 0x00000000 paddr 0x00000000 align 2**2
+filesz 0x000008c0 memsz 0x000008cc flags rwx
+
+The program section header’s filesz may be less than the memsz, indicating that the gap between them should be filled with zeroes (for C global variables) rather than
+read from the file. 
+
+For /init, filesz is 2240 bytes and memsz is 2252 bytes, and thus allocuvm allocates enough physical memory to hold 2252 bytes, but reads only 2240 bytes from the file /init.
+
+Now exec allocates and initializes the user stack. 
+
+It allocates just one stack page. Exec copies the argument strings to the top of the stack one at a time, 
+recording the pointers to them in ustack. 
+
+It places a null pointer at the end of what will be the argv list passed to main. 
+
+
+The first three entries in ustack are the fake return PC, argc, and argv pointer.
+
+Exec places an inaccessible page just below the stack page, so that programs that try to use more than one page will fault. 
+
+This inaccessible page also allows exec to deal with arguments that are too large; in that situation, 
+the copyout (2118) function that exec uses to copy arguments to the stack will notice that the destination page in not accessible, and will return –1.
+
+During the preparation of the new memory image, if exec detects an error like an invalid program segment, it jumps to the label bad, frees the new image, and returns –1. 
+
+Exec must wait to free the old image until it is sure that the system call will succeed: 
+
+if the old image is gone, the system call cannot return –1 to it. 
+The only error cases in exec happen during the creation of the image. Once the image is complete, exec can install the new image (6398) and free the old one (6399). 
+
+Finally, exec returns 0.
+Exec loads bytes from the ELF file into memory at addresses specified by the ELF file. 
+
+Users or processes can place whatever addresses they want into an ELF file. 
+
+Thus exec is risky, because the addresses in the ELF file may refer to the kernel, accidentally or on purpose. 
+
+The consequences for an unwary kernel could range from a crash to a malicious subversion of the kernel’s isolation mechanisms (i.e., a security exploit). 
+
+xv6 performs a number of checks to avoid these risks. 
+
+To understand the importance of these checks, consider what could happen if xv6 didn’t check if(ph.vaddr + ph.memsz < ph.vaddr). This is a check for whether the sum overflows a 32-bit integer.(溢出)
+The danger is that a user could construct an ELF binary with a ph.vaddr that points into the kernel, and ph.memsz large enough that the sum overflows to 0x1000. 
+
+Since the sum is small, it would pass the check if(newsz >= KERNBASE) in allocuvm.
+
+The subsequent call to loaduvm passes ph.vaddr by itself, without adding ph.memsz and without checking ph.vaddr against KERNBASE, and would thus copy data from the ELF binary into the kernel. 
+
+This could be exploited by a user program to run arbitrary user code with kernel privileges. 
+
+As this example illustrates, argument checking must be done with great care. 
+
+It is easy for a kernel developer to omit a crucial check, and real-world kernels have a long history of missing checks whose absence can be exploited by user programs to obtain kernel privileges. 
+
+It is likely that xv6 doesn’t do a complete job of validating user-level data supplied to the kernel, which a malicious user program might be able to exploit to circumvent xv6’s isolation.
+
+
+
+
+
+
+

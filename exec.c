@@ -21,13 +21,13 @@ exec(char *path, char **argv)
 
   begin_op();
 
-  if((ip = namei(path)) == 0){
+  if((ip = namei(path)) == 0){  //读取 二进制文件对应的 elf 文件。
     end_op();
     cprintf("exec: fail\n");
     return -1;
   }
   ilock(ip);
-  pgdir = 0;
+  pgdir = 0;  
 
   // Check ELF header
   if(readi(ip, (char*)&elf, 0, sizeof(elf)) != sizeof(elf))
@@ -35,11 +35,11 @@ exec(char *path, char **argv)
   if(elf.magic != ELF_MAGIC)
     goto bad;
 
-  if((pgdir = setupkvm()) == 0)
+  if((pgdir = setupkvm()) == 0)  //分配新的 pgdir 并将kernel 的虚拟地址空间 添加进去。
     goto bad;
 
   // Load program into memory.
-  sz = 0;
+  sz = 0;  //加载程序的代码 到 应用的虚拟地址空间 从 0 开始
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
     if(readi(ip, (char*)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;

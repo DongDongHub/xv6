@@ -61,10 +61,10 @@ kfree(char *v)
 {
   struct run *r;
 
-  if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
+  if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP) //1. 判断 v 是否是 4096 的整数倍，2. 判断 v 是否的范围是否在 end 上 PHYSTOP 下。
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
+  // Fill with junk to catch dangling refs. 全部初始化 为 1
   memset(v, 1, PGSIZE);
 
   if(kmem.use_lock)
