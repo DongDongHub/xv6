@@ -116,7 +116,7 @@ static struct kmap {
  { (void*)DEVSPACE, DEVSPACE,      0,         PTE_W}, // more devices
 };
 
-// Set up kernel part of a page table.
+// Set up kernel part of a page table.  初始化 内核的 页表
 pde_t*
 setupkvm(void)
 {

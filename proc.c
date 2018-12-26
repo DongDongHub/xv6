@@ -254,9 +254,9 @@ exit(void)
 
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->parent == curproc){
+    if(p->parent == curproc){  //如果 currproc 有子进程 需要 设置 子进程的父进程改为 initproc
       p->parent = initproc;
-      if(p->state == ZOMBIE)
+      if(p->state == ZOMBIE)  //如果同时推出 此时 还没有机会来 回收 ZOMBIE
         wakeup1(initproc);
     }
   }
@@ -287,9 +287,9 @@ wait(void)
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
-        kfree(p->kstack);
+        kfree(p->kstack);  //释放 内核栈
         p->kstack = 0;
-        freevm(p->pgdir);
+        freevm(p->pgdir);  //释放 pgdir
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;

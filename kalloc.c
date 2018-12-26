@@ -29,9 +29,9 @@ struct {
 // 2. main() calls kinit2() with the rest of the physical pages
 // after installing a full page table that maps them on all cores.
 void
-kinit1(void *vstart, void *vend)
+kinit1(void *vstart, void *vend)  //此处指合理应该是 实际的物理地址
 {
-  initlock(&kmem.lock, "kmem");
+  initlock(&kmem.lock, "kmem");  //初始化 锁 kmem
   kmem.use_lock = 0;
   freerange(vstart, vend);
 }

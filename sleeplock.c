@@ -20,7 +20,7 @@ initsleeplock(struct sleeplock *lk, char *name)
 }
 
 void
-acquiresleep(struct sleeplock *lk)
+acquiresleep(struct sleeplock *lk)  //每次 仅 有一个 可以操作 lk->lk 的值
 {
   acquire(&lk->lk);
   while (lk->locked) {

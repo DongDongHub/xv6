@@ -34,20 +34,20 @@ idtinit(void)
 
 //PAGEBREAK: 41
 void
-trap(struct trapframe *tf)  //此处的 tf 保存在内核的stack 上。
+trap(struct trapframe *tf)  	//此处的 tf 保存在内核的stack 上。
 {
-  if(tf->trapno == T_SYSCALL){
+  if(tf->trapno == T_SYSCALL){  //针对系统调用 正常处理完成之后就直接返回。
     if(myproc()->killed)
       exit();
     myproc()->tf = tf;
-    syscall();
-    if(myproc()->killed)
+    syscall();  				//所有的系统调用均会在此处返回 如果 killed 为真, 则会调用 exit 的代码。
+    if(myproc()->killed)		
       exit();
     return;
   }
 
-  switch(tf->trapno){
-  case T_IRQ0 + IRQ_TIMER:
+  switch(tf->trapno){  //其他类型的终端 对应的是 只有内核 能够处理的中断。
+  case T_IRQ0 + IRQ_TIMER:  //定时器
     if(cpuid() == 0){
       acquire(&tickslock);
       ticks++;
@@ -56,8 +56,8 @@ trap(struct trapframe *tf)  //此处的 tf 保存在内核的stack 上。
     }
     lapiceoi();
     break;
-  case T_IRQ0 + IRQ_IDE:
     ideintr();
+	case T_IRQ0 + IRQ_IDE:	//IED 中断
     lapiceoi();
     break;
   case T_IRQ0 + IRQ_IDE+1:

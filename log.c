@@ -65,9 +65,9 @@ initlog(int dev)
   recover_from_log();
 }
 
-// Copy committed blocks from log to their home location
+// Copy committed blocks from log to their home location  拷贝 log 里面的完整提交 到 目标 缓存。
 static void
-install_trans(void)
+   install_trans(void)
 {
   int tail;
 
@@ -180,8 +180,8 @@ write_log(void)
   int tail;
 
   for (tail = 0; tail < log.lh.n; tail++) {
-    struct buf *to = bread(log.dev, log.start+tail+1); // log block
-    struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block
+    struct buf *to = bread(log.dev, log.start+tail+1); // log block 待 覆盖写入的块
+    struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block  待 保存的快
     memmove(to->data, from->data, BSIZE);
     bwrite(to);  // write the log
     brelse(from);

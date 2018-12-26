@@ -52,7 +52,7 @@ binit(void)
     initsleeplock(&b->lock, "buffer");
     bcache.head.next->prev = b;
     bcache.head.next = b;
-  }
+  }  //循环每次添加的时  都会添加到 bcache.head 的 右侧 的第一个位置。 以  bcache.head 为 起点 和 终点的循环链表
 }
 
 // Look through buffer cache for block on device dev.
@@ -73,19 +73,19 @@ bget(uint dev, uint blockno)
       acquiresleep(&b->lock);
       return b;
     }
-  }
+  } //从 bcache.head.next 开始查找链表  head 节点没有投入使用 从头到尾 查找
 
   // Not cached; recycle an unused buffer.
   // Even if refcnt==0, B_DIRTY indicates a buffer is in use
   // because log.c has modified it but not yet committed it.
   for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-    if(b->refcnt == 0 && (b->flags & B_DIRTY) == 0) {
+    if(b->refcnt == 0 && (b->flags & B_DIRTY) == 0) {  //从尾 到头进行查找
       b->dev = dev;
       b->blockno = blockno;
       b->flags = 0;
       b->refcnt = 1;
       release(&bcache.lock);
-      acquiresleep(&b->lock);
+      acquiresleep(&b->lock);  //获取 该 block 的lock
       return b;
     }
   }
@@ -99,7 +99,7 @@ bread(uint dev, uint blockno)
   struct buf *b;
 
   b = bget(dev, blockno);
-  if((b->flags & B_VALID) == 0) {
+  if((b->flags & B_VALID) == 0) {  //仅 当 buf 内的数据是 有效时才使用
     iderw(b);
   }
   return b;

@@ -27,12 +27,12 @@ struct superblock {
 
 // On-disk inode structure
 struct dinode {
-  short type;           // File type
-  short major;          // Major device number (T_DEV only)
-  short minor;          // Minor device number (T_DEV only)
-  short nlink;          // Number of links to inode in file system
-  uint size;            // Size of file (bytes)
-  uint addrs[NDIRECT+1];   // Data block addresses
+  short type;           // File type 文件/目录/设备 等。
+  short major;          // Major device number (T_DEV only) 主版本号
+  short minor;          // Minor device number (T_DEV only) 副版本号
+  short nlink;          // Number of links to inode in file system 
+  uint size;            // Size of file (bytes) 文件的大小
+  uint addrs[NDIRECT+1];   // Data block addresses 文件内容的 block 
 };
 
 // Inodes per block.

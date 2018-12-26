@@ -1,4 +1,4 @@
-struct buf {
+struct buf {  //buf 用于 从磁盘上的读写
   int flags;
   uint dev;
   uint blockno;
