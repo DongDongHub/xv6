@@ -133,7 +133,7 @@ runcmd(struct cmd *cmd)
 int
 getcmd(char *buf, int nbuf)
 {
-  printf(2, "$ ");
+  printf(2, "$ ");  //先输出 $ 
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
   if(buf[0] == 0) // EOF
@@ -148,8 +148,8 @@ main(void)
   int fd;
 
   // Ensure that three file descriptors are open.
-  while((fd = open("console", O_RDWR)) >= 0){
-    if(fd >= 3){
+  while((fd = open("console", O_RDWR)) >= 0){//内核部分的代码都是 从 0 开始打开？
+    if(fd >= 3){ // 0， 1， 2 打开这三个文件描述符。
       close(fd);
       break;
     }
@@ -168,7 +168,7 @@ main(void)
       runcmd(parsecmd(buf));
     wait();
   }
-  exit();
+  exit();  //shell 退出
 }
 
 void
